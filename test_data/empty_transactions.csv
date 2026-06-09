@@ -1,0 +1,1 @@
+txn_id,card_no,txn_time,amount,currency,merchant_id,merchant_name,mcc,acquirer,channel,province,city,device_id,phone,id_no,txn_type,rule_ids,manual_result,cardholder_name,risk_score,pos_entry_mode,acquirer_bank

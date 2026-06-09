@@ -95,10 +95,10 @@ def _parse_rule_hit(value, high_risk_rules: set) -> Optional[int]:
 
 def cmd_label(args: argparse.Namespace) -> int:
     """执行 label 命令"""
-    txn_file = args.input
     data_dir = args.data_dir or "./data"
     output_dir = ensure_dir(args.output_dir)
 
+    txn_file = args.input
     if not txn_file:
         p = Path(data_dir) / "cleaned" / "transactions_clean.pkl"
         if p.exists():
@@ -108,11 +108,26 @@ def cmd_label(args: argparse.Namespace) -> int:
             if p2.exists():
                 txn_file = str(p2)
             else:
-                logger.error("未找到交易文件")
-                return 1
+                print("[提示] 未找到交易文件，生成空标签说明后正常退出")
+                _write_empty_label(output_dir, "未找到交易输入文件 "
+                                   "(cleaned/transactions_clean.pkl 或 "
+                                   "imported/transactions_raw.pkl)")
+                return 0
 
     logger.info(f"读取交易数据: {txn_file}")
     df = read_file(txn_file)
+
+    # ---- 空数据集处理 ----
+    if len(df) == 0:
+        print("[提示] 交易数据集为空，生成空标签结果后正常退出")
+        _write_empty_label(output_dir,
+                           f"输入交易数据集 ({Path(txn_file).name}) 行数为 0")
+        # 写一个空的带标签 DataFrame 方便下游步骤衔接
+        empty_df = df.copy()
+        empty_df["fraud_label"] = []
+        empty_df["label_source"] = []
+        save_file(empty_df, str(Path(output_dir) / "transactions_labeled.pkl"))
+        return 0
 
     # 读取拒付数据
     cb_df = None
@@ -239,6 +254,35 @@ def cmd_label(args: argparse.Namespace) -> int:
     print(df["label_source"].value_counts().to_string())
     print(f"\n[完成] 标签生成完成。输出: {out_path}")
     return 0
+
+
+def _write_empty_label(output_dir: str, reason: str) -> None:
+    """生成空标签说明文件"""
+    from pathlib import Path as _Path
+    _Path(output_dir).mkdir(parents=True, exist_ok=True)
+    p = _Path(output_dir) / "EMPTY_LABEL_NOTE.txt"
+    p.write_text(
+        f"空标签说明\n"
+        f"==========\n"
+        f"时间: {pd.Timestamp.now()}\n"
+        f"原因: {reason}\n\n"
+        f"对下游的影响:\n"
+        f"  - 输出 transactions_labeled.pkl 为空 DataFrame\n"
+        f"  - profile/split/report/export 可正常运行，将识别为空数据集并给出提示\n"
+        f"\n处理建议:\n"
+        f"  - 检查上游 import 是否成功读取了交易文件\n"
+        f"  - 检查 clean 是否因字段校验失败而未产出数据\n"
+        f"  - 检查输入文件本身是否为空\n",
+        encoding="utf-8"
+    )
+    # 生成空报告
+    report_path = _Path(output_dir) / "label_report.txt"
+    report_path.write_text(
+        "=== 标签生成摘要 ===\n"
+        f"总样本数: 0 (空数据集)\n"
+        f"原因: {reason}\n",
+        encoding="utf-8"
+    )
 
 
 def register_subparser(subparsers) -> None:

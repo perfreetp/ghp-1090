@@ -1,0 +1,63 @@
+# 测试用批配置 - 指向 generate_test_data.py 生成的 demo 数据
+task_name: "端到端验证测试批"
+task_description: "用于验证批处理命令功能的演示配置"
+owner: "dev"
+
+data_paths:
+  transactions:
+    - "./test_data/transactions.csv"
+  chargebacks:
+    - "./test_data/chargebacks.csv"
+  blacklists:
+    - "./test_data/blacklists.csv"
+
+output:
+  base_dir: "./output_test_batch"
+  manifest_format: ["csv", "markdown"]
+  use_step_dirs: true
+
+import:
+  field_mapping: {}    # demo 数据已经使用标准列名
+  high_null_threshold: 0.3
+
+split:
+  method: "ratio"
+  ratios: [0.70, 0.15, 0.15]
+  stratified: true
+  prevent_card_leak: true
+  random_state: 42
+
+mask:
+  enable: true
+  mode: "mask"
+  hash_salt: "DEMO_SALT"
+
+export:
+  formats: ["csv", "xlsx"]
+  encoding: "utf-8-sig"
+  deliverables:
+    sample_submission: true
+    column_dictionary: true
+
+label:
+  high_risk_rules: ["R001", "R002", "R003"]
+  blacklist_as_fraud: true
+  default_genuine: true
+
+report:
+  formats: ["xlsx", "markdown", "business_markdown"]
+  business_report:
+    audience: "测试用-业务部"
+    include_recommendations: true
+  dimensions:
+    monthly: true
+    mcc: true
+    province: true
+    city: true
+    channel: true
+    txn_type: true
+  top_n_features: 10
+
+skip_steps: []
+stop_on_error: false
+log_level: "INFO"

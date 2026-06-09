@@ -1,0 +1,13 @@
+空标签说明
+==========
+时间: 2026-06-09 23:29:20.991790
+原因: 输入交易数据集 (transactions_clean.pkl) 行数为 0
+
+对下游的影响:
+  - 输出 transactions_labeled.pkl 为空 DataFrame
+  - profile/split/report/export 可正常运行，将识别为空数据集并给出提示
+
+处理建议:
+  - 检查上游 import 是否成功读取了交易文件
+  - 检查 clean 是否因字段校验失败而未产出数据
+  - 检查输入文件本身是否为空

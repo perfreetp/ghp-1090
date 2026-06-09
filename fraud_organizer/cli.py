@@ -8,7 +8,7 @@ from . import __version__
 from .utils import setup_logging
 from .commands import (
     importer, cleaner, labeler, profiler,
-    splitter, masker, reporter, exporter,
+    splitter, masker, reporter, exporter, runner,
 )
 
 logger = logging.getLogger(__name__)
@@ -22,28 +22,21 @@ def create_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 命令示例:
-  # 1. 导入数据
+  # 方式一: 批处理配置（推荐长期跑批、日常调度使用）
+  fraud-org run -c batch_config.yaml
+  fraud-org batch --config monthly_task.yaml --verbose
+
+  # 方式二: 一键完整流水线
+  fraud-org pipeline -t txns*.csv -c chargebacks.xlsx -b blacklist.csv
+
+  # 方式三: 单步执行（调试、局部重跑用）
   fraud-org import -t txns_2024*.csv -c chargebacks.xlsx -b blacklist.csv
-
-  # 2. 数据清洗
   fraud-org clean
-
-  # 3. 生成标签
   fraud-org label
-
-  # 4. 数据画像
   fraud-org profile --top-n 30
-
-  # 5. 拆分数据集
   fraud-org split -m ratio --ratios 0.7 0.15
-
-  # 6. 脱敏处理
   fraud-org mask --all
-
-  # 7. 生成报告
   fraud-org report
-
-  # 8. 导出交付
   fraud-org export -f csv xlsx
         """,
     )
@@ -63,6 +56,7 @@ def create_parser() -> argparse.ArgumentParser:
     masker.register_subparser(subparsers)
     reporter.register_subparser(subparsers)
     exporter.register_subparser(subparsers)
+    runner.register_subparser(subparsers)
 
     # 流水线命令
     pipeline = subparsers.add_parser("pipeline", aliases=["all"],

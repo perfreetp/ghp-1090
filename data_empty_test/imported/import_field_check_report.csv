@@ -1,0 +1,10 @@
+﻿文件类型,文件路径,文件名称,总行数,检查项,字段名,空值数,空值率%,严重程度
+交易文件,test_data/empty_transactions.csv,empty_transactions.csv,0,缺失选填字段,id_card,,,提示
+交易文件,test_data/empty_transactions.csv,empty_transactions.csv,0,缺失选填字段,ip,,,提示
+交易文件,test_data/empty_transactions.csv,empty_transactions.csv,0,缺失选填字段,country,,,提示
+交易文件,test_data/empty_transactions.csv,empty_transactions.csv,0,缺失选填字段,installment,,,提示
+交易文件,test_data/empty_transactions.csv,empty_transactions.csv,0,缺失选填字段,cashback,,,提示
+交易文件,test_data/empty_transactions.csv,empty_transactions.csv,0,缺失选填字段,manual_review,,,提示
+交易文件,test_data/empty_transactions.csv,empty_transactions.csv,0,缺失选填字段,auth_code,,,提示
+交易文件,test_data/empty_transactions.csv,empty_transactions.csv,0,缺失选填字段,issuer_bank,,,提示
+交易文件,test_data/empty_transactions.csv,empty_transactions.csv,0,缺失选填字段,terminal_id,,,提示

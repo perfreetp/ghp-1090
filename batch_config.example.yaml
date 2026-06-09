@@ -1,0 +1,157 @@
+# ============================================================
+# 信用卡欺诈样本整理器 - 批处理任务配置模板
+# 用法: fraud-org run -c batch_config.yaml
+#       fraud-org batch --config monthly_task.yaml --verbose
+# ============================================================
+
+# ---------- 任务元信息 ----------
+task_name: "2024-Q4 零售业务欺诈样本月度整理"
+task_description: >
+  每月固定跑批任务：从 OB、核心系统导出文件中提取样本，
+  生成建模用训练集 + 月度业务报告。
+owner: "风险分析部-反欺诈组"
+created_at: "2024-12-01"
+
+# ---------- 1. 数据输入路径 ----------
+# 支持单个文件、通配符、多个文件数组
+data_paths:
+  # 交易文件（必填，至少一个）
+  transactions:
+    - "./raw_data/transactions_2024-10.csv"
+    - "./raw_data/transactions_2024-11.csv"
+    - "./raw_data/transactions_2024-12.xlsx"
+
+  # 拒付文件（选填，没有则用黑名单/规则打标签）
+  chargebacks:
+    - "./raw_data/chargebacks_2024Q4.csv"
+
+  # 黑名单文件（选填）
+  blacklists:
+    - "./raw_data/blacklist_cards.csv"
+    - "./raw_data/blacklist_merchants.csv"
+
+# ---------- 2. 输出目录 ----------
+output:
+  base_dir: "./output/2024Q4_monthly"          # 所有输出的根目录
+  manifest_format: ["csv", "markdown"]         # 批处理清单输出格式
+  # 可选：每步独立子目录（默认 True，推荐）
+  use_step_dirs: true
+
+# ---------- 3. Import 字段映射（选填，覆盖/补充内置映射） ----------
+# 映射方向：用户原始列名 -> 工具标准列名
+import:
+  # 银行内部字段名映射
+  field_mapping:
+    # ===== 交易表字段映射 =====
+    "流水号": "txn_id"
+    "卡号脱敏": "card_no"
+    "交易时间_local": "txn_time"
+    "交易金额_cny": "amount"
+    "原币别": "currency"
+    "商户号": "merchant_id"
+    "商户名称": "merchant_name"
+    "MCC码": "mcc"
+    "收单机构": "acquirer"
+    "交易渠道": "channel"
+    "省份_交易发生地": "province"
+    "城市_交易发生地": "city"
+    "设备指纹": "device_id"
+    "客户手机号": "phone"
+    "证件号": "id_no"
+    "交易类型": "txn_type"
+    "规则命中ID": "rule_ids"
+    "人工审核结论": "manual_result"
+
+    # ===== 拒付表字段映射 =====
+    "原交易流水": "txn_id"
+    "拒付原因码": "chargeback_reason"
+    "拒付处理结果": "chargeback_result"
+
+    # ===== 黑名单字段映射 =====
+    "类型": "blacklist_type"   # card/phone/id/merchant 之一
+    "值": "blacklist_value"
+
+  # 空值列告警阈值（默认 30%，高于此比例在报告中高亮）
+  high_null_threshold: 0.3
+
+  # 字段检查报告格式
+  report_formats: ["csv", "markdown"]
+
+# ---------- 4. 数据集拆分 ----------
+split:
+  method: "date"             # ratio (按比例) / date (按日期外推)
+  # --- 按比例拆分（method=ratio 时生效）---
+  ratios: [0.70, 0.15, 0.15]  # train / valid / test (回溯集)
+  stratified: true            # 分层抽样，保持标签比例
+  prevent_card_leak: true     # 防止同卡号跨多集泄漏
+  random_state: 20241201
+
+  # --- 按日期拆分（method=date 时生效，推荐金融建模防时间泄漏）---
+  date_boundaries:
+    - "2024-10-01"            # train 起点
+    - "2024-11-20"            # train 终点 / valid 起点
+    - "2024-12-05"            # valid 终点 / test 起点
+    - "2024-12-31"            # test 终点
+
+# ---------- 5. 脱敏规则 ----------
+mask:
+  enable: true
+  mode: "mask"                # mask(遮罩) / hash(哈希) / drop(删除)
+  hash_salt: "BANK_FRAUD_2024_SALT"   # hash 模式盐值，建议使用环境变量
+  rules:
+    card_no: "mask"           # 卡号：保6留4
+    cardholder_name: "mask"   # 姓名：保留首末字
+    id_no: "mask"             # 证件：保4留4
+    phone: "mask"             # 手机号：保3留4
+    merchant_id: "none"       # 商户号：保留（业务分析需要）
+    device_id: "none"
+
+# ---------- 6. 导出格式 ----------
+export:
+  formats: ["csv", "xlsx", "parquet", "pickle"]
+  encoding: "utf-8-sig"       # Excel 打开 CSV 不乱码
+  # 导出时额外进行的过滤
+  filters:
+    drop_empty_datasets: false   # 空子集也导出（保留骨架）
+    date_range: null             # 按日期范围过滤，例如 ["2024-10-01", "2024-12-31"]
+  # 是否生成"建模交付包"额外输出
+  deliverables:
+    sample_submission: true      # 生成样本提交格式示例
+    column_dictionary: true      # 生成数据字典 md
+    label_distribution_csv: true # 标签分布明细
+
+# ---------- 7. 标签规则 ----------
+label:
+  # 高风险规则 ID（命中则标可疑）
+  high_risk_rules: ["R001", "R002", "R003", "HIGH_RISK", "DEVICE_FRAUD"]
+  # 黑名单命中直接标欺诈？（false=标可疑，由人工再审）
+  blacklist_as_fraud: true
+  # 未命中任何规则的交易默认标真实
+  default_genuine: true
+
+# ---------- 8. 报告选项 ----------
+report:
+  formats: ["xlsx", "markdown", "business_markdown"]
+  # 业务报告接收人（仅写入说明，工具不主动发送邮件）
+  business_report:
+    audience: "业务部-零售运营 / 风险管理委员会"
+    include_recommendations: true   # 自动生成业务建议
+    highlight_risk_level: "medium"  # 高亮 medium/high 风险项
+  # 维度汇总启用开关
+  dimensions:
+    monthly: true
+    mcc: true
+    province: true
+    city: true
+    channel: true
+    txn_type: true
+  # Top N 高风险特征
+  top_n_features: 15
+
+# ---------- 9. 执行控制 ----------
+# 可选：跳过某些步骤（局部重跑用）
+skip_steps: []                    # 可选值: import / clean / label / profile / split / mask / report / export
+# stop_on_error: false 时非核心步骤(profile/report)失败继续跑
+stop_on_error: false
+# 日志级别
+log_level: "INFO"                 # DEBUG / INFO / WARNING
