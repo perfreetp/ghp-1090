@@ -1,0 +1,6 @@
+﻿文件类型,文件路径,文件名称,总行数,检查项,字段名,空值数,空值率%,严重程度
+交易文件,test_data/qg_testdata/txn_missing_required.csv,txn_missing_required.csv,3030,缺失必填字段,txn_time,,,必填缺失
+交易文件,test_data/qg_testdata/txn_missing_required.csv,txn_missing_required.csv,3030,高比例空值(>=50%),installment,2154,71.09,高比例空值
+交易文件,test_data/qg_testdata/txn_missing_required.csv,txn_missing_required.csv,3030,高比例空值(>=50%),cashback,2105,69.47,高比例空值
+交易文件,test_data/qg_testdata/txn_missing_required.csv,txn_missing_required.csv,3030,高比例空值(>=50%),rule_hit,2926,96.57,高比例空值
+交易文件,test_data/qg_testdata/txn_missing_required.csv,txn_missing_required.csv,3030,高比例空值(>=50%),manual_result,2938,96.96,高比例空值

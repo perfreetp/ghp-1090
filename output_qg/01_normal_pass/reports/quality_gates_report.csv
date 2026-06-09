@@ -1,0 +1,7 @@
+﻿规则,结果,严重级别,详情
+G1_必填字段缺失,PASS,none,所有必填字段齐全
+G1b_高比例空值列,WARN,major,高比例空值列(>30%)共 4 列: txn_normal.csv.installment(71.09%) | txn_normal.csv.cashback(69.47%) | txn_normal.csv.rule_hit(96.57%) | txn_normal.csv.manual_result(96.96%)
+G2_主集(labeled)样本为空,PASS,none,主集样本数 = 3000
+G2b_训练集(train)为空,PASS,none,train 样本数 = 2098
+G3_欺诈率环比异常波动,PASS,none,"当前=1.6000%, 上次=1.6000%, 环比=0.0%"
+G4_欺诈率范围合理性,PASS,none,"欺诈率=1.6000%，在合理区间 [0.05%, 15.00%]"

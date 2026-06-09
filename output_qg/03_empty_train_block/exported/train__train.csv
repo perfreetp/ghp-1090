@@ -1,0 +1,1 @@
+﻿txn_id,card_no,cardholder_name,id_card,phone,txn_time,txn_amount,currency,merchant_id,merchant_name,mcc,txn_type,channel,country,province,city,device_id,ip,pos_entry_mode,installment,cashback,risk_score,rule_hit,manual_review,manual_result,auth_code,issuer_bank,acquirer_bank,terminal_id,fraud_label,label_source

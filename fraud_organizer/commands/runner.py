@@ -42,6 +42,8 @@ class BatchManifest:
     config_path: str = ""
     steps: List[StepArtifact] = field(default_factory=list)
     summary: Dict[str, Any] = field(default_factory=dict)
+    status: str = "running"      # success / partial / failed / blocked
+    quality_gates: List[Dict[str, Any]] = field(default_factory=list)
 
     def total_duration(self) -> float:
         return sum(s.duration for s in self.steps)
@@ -156,8 +158,8 @@ def cmd_run(args: argparse.Namespace) -> int:
     for d in dirs.values():
         ensure_dir(d)
 
-    # 数据路径
-    data_cfg = task_cfg.get("data_paths", {})
+    # 数据路径 (兼容 inputs.xxx 和 data_paths.xxx 两种写法)
+    data_cfg = task_cfg.get("data_paths", {}) or task_cfg.get("inputs", {}) or {}
     txn_files = data_cfg.get("transactions", []) or []
     cb_files = data_cfg.get("chargebacks", []) or []
     bl_files = data_cfg.get("blacklists", []) or []
@@ -553,44 +555,50 @@ def _run_quality_gates(manifest: BatchManifest, dirs: Dict[str, str],
 
     # ---- Gate 1: 必填字段缺失 (从 import 报告读取) ----
     missing_report = Path(dirs["imported"]) / "import_field_check_report.csv"
-    missing_required_files: List[str] = []
-    high_null_cols: List[str] = []
+    missing_required_items: List[str] = []
+    high_null_items: List[str] = []
     if missing_report.exists():
         try:
             rep = pd.read_csv(missing_report, encoding="utf-8-sig")
             if "严重程度" in rep.columns:
+                fname_col = "文件名称" if "文件名称" in rep.columns else ("文件" if "文件" in rep.columns else rep.columns[0])
+                field_col = "字段名" if "字段名" in rep.columns else ("字段" if "字段" in rep.columns else rep.columns[0])
+                pct_col = "空值率%" if "空值率%" in rep.columns else ("空值率" if "空值率" in rep.columns else None)
                 miss_req = rep[(rep["严重程度"] == "必填缺失")]
                 for _, r in miss_req.iterrows():
-                    missing_required_files.append(f"{r.get('文件','?')}:{r.get('字段','?')}")
+                    missing_required_items.append(f"{r.get(fname_col,'?')}.{r.get(field_col,'?')}")
                 nulls = rep[(rep["严重程度"] == "高比例空值")]
                 for _, r in nulls.iterrows():
-                    high_null_cols.append(f"{r.get('文件','?')}:{r.get('字段','?')}({r.get('空值率',0)})")
+                    pct_val = f"{r.get(pct_col,0)}%" if pct_col else ""
+                    high_null_items.append(f"{r.get(fname_col,'?')}.{r.get(field_col,'?')}({pct_val})")
         except Exception as e:
             logger.warning(f"读 import 字段检查报告异常: {e}")
-    if missing_required_files:
+    if missing_required_items:
         _add("G1_必填字段缺失",
              "BLOCK" if block_missing_required else "WARN",
              "critical" if block_missing_required else "major",
-             f"缺失字段数: {len(missing_required_files)}。" + "|".join(missing_required_files)[:300])
+             f"缺失字段数: {len(missing_required_items)}。" + " | ".join(missing_required_items)[:300])
     else:
         _add("G1_必填字段缺失", "PASS", "none", "所有必填字段齐全")
-    if high_null_cols:
+    if high_null_items:
         _add("G1b_高比例空值列", "WARN", "major",
-             f"高比例空值列(>{int(high_null_threshold*100)}%)共 {len(high_null_cols)} 列: "
-             + "|".join(high_null_cols)[:300])
+             f"高比例空值列(>{int(high_null_threshold*100)}%)共 {len(high_null_items)} 列: "
+             + " | ".join(high_null_items)[:300])
     else:
         _add("G1b_高比例空值列", "PASS", "none", f"无空值率超过 {int(high_null_threshold*100)}% 的列")
 
     # ---- Gate 2: 训练集/主集为空 ----
-    # labeled 集和 train split
     labeled_p = Path(dirs["labeled"]) / "transactions_labeled.pkl"
     train_p = Path(dirs["splits"]) / "train.pkl"
     labeled_count = 0
+    df_labeled: Optional[pd.DataFrame] = None
     if labeled_p.exists():
         try:
-            labeled_count = len(pd.read_pickle(str(labeled_p)))
+            df_labeled = pd.read_pickle(str(labeled_p))
+            labeled_count = len(df_labeled)
         except Exception:
             labeled_count = 0
+            df_labeled = None
     train_count = 0
     if train_p.exists():
         try:
@@ -617,13 +625,10 @@ def _run_quality_gates(manifest: BatchManifest, dirs: Dict[str, str],
              f"train 样本数 = {train_count}")
 
     # ---- Gate 3: 欺诈率异常波动 (对比最近一次历史跑批) ----
-    if labeled_count > 0:
-        # 读当前欺诈率
+    cur_fr: Optional[float] = None
+    if labeled_count > 0 and df_labeled is not None and "fraud_label" in df_labeled.columns:
         try:
-            df = pd.read_pickle(str(labeled_p))
-            cur_fr = 0.0
-            if "fraud_label" in df.columns and len(df) > 0:
-                cur_fr = float((df["fraud_label"] == 1).sum() / len(df) * 100)
+            cur_fr = float((df_labeled["fraud_label"] == 1).sum() / max(len(df_labeled), 1) * 100)
             # 找历史
             try:
                 hist = _read_history(limit=5)
@@ -639,7 +644,9 @@ def _run_quality_gates(manifest: BatchManifest, dirs: Dict[str, str],
                         vol = abs(cur_fr - prev_fr) / prev_fr * 100
                     else:
                         vol = float("inf") if cur_fr > 0 else 0.0
-                    if vol > max_fraud_rate_volatility and cur_fr > 0:
+                    # 任一侧>0 且波动超阈值：都告警（cur_fr=0, prev>0 也算剧烈波动）
+                    any_positive = cur_fr > 0 or prev_fr > 0
+                    if vol > max_fraud_rate_volatility and any_positive:
                         _add("G3_欺诈率环比异常波动", "WARN", "major",
                              f"当前={cur_fr:.4f}%, 上次={prev_fr:.4f}%, "
                              f"环比变动={vol:.1f}%，超过阈值={max_fraud_rate_volatility}%")
@@ -654,11 +661,11 @@ def _run_quality_gates(manifest: BatchManifest, dirs: Dict[str, str],
         except Exception as e:
             _add("G3_欺诈率环比异常波动", "SKIP", "none", f"计算失败: {e}")
     else:
-        _add("G3_欺诈率环比异常波动", "SKIP", "none", "主集为空，跳过")
+        _add("G3_欺诈率环比异常波动", "SKIP", "none", "主集为空或无标签列，跳过")
 
     # ---- Gate 4: 欺诈率范围合理性 (0.05%~15% 经验范围) ----
-    if labeled_count > 0 and "fraud_label" in df.columns:
-        fr = float((df["fraud_label"] == 1).sum() / max(len(df), 1) * 100)
+    if cur_fr is not None:
+        fr = cur_fr
         lo, hi = float(warn_fraud_range[0]) * 100, float(warn_fraud_range[1]) * 100
         if fr < lo:
             _add("G4_欺诈率范围合理性", "WARN", "minor",
@@ -684,7 +691,7 @@ def _run_quality_gates(manifest: BatchManifest, dirs: Dict[str, str],
 def _finalize_manifest(manifest: BatchManifest, report_dir: str,
                        output_root: str = None, dirs: Dict = None,
                        quality_gates: List[Dict[str, Any]] = None) -> int:
-    """收尾：生成并保存清单文件"""
+    """收尾：生成并保存清单文件。QGBLOCK => status=blocked, 退出码=100+ """
     manifest.end_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     ensure_dir(report_dir)
@@ -697,8 +704,20 @@ def _finalize_manifest(manifest: BatchManifest, report_dir: str,
     qg_pass = sum(1 for q in qg_list if q.get("结果") == "PASS")
     qg_warn = sum(1 for q in qg_list if q.get("结果") == "WARN")
     qg_block = sum(1 for q in qg_list if q.get("结果") == "BLOCK")
+
+    # --- 确定整体状态（优先级：blocked > failed > partial > success） ---
+    if qg_block > 0:
+        manifest.status = "blocked"
+    elif failed > 0 and success > 0:
+        manifest.status = "partial"
+    elif failed > 0:
+        manifest.status = "failed"
+    else:
+        manifest.status = "success"
+
     manifest.summary = {
         "任务名": manifest.task_name,
+        "整体状态": manifest.status,
         "成功步骤": success,
         "跳过步骤": skipped,
         "失败步骤": failed,
@@ -764,10 +783,14 @@ def _finalize_manifest(manifest: BatchManifest, report_dir: str,
     try:
         _append_run_history(manifest, config_path_resolved=manifest.config_path,
                             output_root=output_root or "",
-                            report_dir=report_dir, dirs=dirs or {})
+                            report_dir=report_dir, dirs=dirs or {},
+                            override_status=manifest.status)
     except Exception as e:
         logger.warning(f"写入任务历史台账失败 (非致命): {e}")
 
+    # 退出码：步骤失败 / QG阻断 分别返回独立区间
+    if manifest.status == "blocked":
+        return 100 + qg_block
     if failed > 0:
         return 10 + failed
     return 0
@@ -863,7 +886,8 @@ def _load_key_metrics_from_dirs(dirs: Dict[str, str]) -> Dict[str, Any]:
 
 def _append_run_history(manifest: BatchManifest, config_path_resolved: str,
                         output_root: str, report_dir: str,
-                        dirs: Dict[str, str]) -> None:
+                        dirs: Dict[str, str],
+                        override_status: str = None) -> None:
     """追加一次跑批记录到本地 JSONL 台账"""
     hp = _history_path()
 
@@ -872,6 +896,10 @@ def _append_run_history(manifest: BatchManifest, config_path_resolved: str,
 
     summary = manifest.summary or {}
     key_metrics = _load_key_metrics_from_dirs(dirs)
+    qg_list = getattr(manifest, "quality_gates", []) or []
+    qg_pass = sum(1 for q in qg_list if q.get("结果") == "PASS")
+    qg_warn = sum(1 for q in qg_list if q.get("结果") == "WARN")
+    qg_block = sum(1 for q in qg_list if q.get("结果") == "BLOCK")
 
     # 步骤简表（不展开每个文件，省空间）
     steps_slim = [
@@ -885,14 +913,20 @@ def _append_run_history(manifest: BatchManifest, config_path_resolved: str,
         } for s in (manifest.steps or [])
     ]
 
+    # 最终状态：override_status 优先
+    if override_status:
+        final_status = override_status
+    else:
+        final_status = "success" if summary.get("失败步骤", 0) == 0 else (
+            "partial" if summary.get("成功步骤", 0) > 0 else "failed")
+
     record = {
         "run_id": run_id,
         "task_name": manifest.task_name,
         "start_time": manifest.start_time,
         "end_time": manifest.end_time,
         "duration_sec": round(manifest.total_duration(), 3),
-        "status": "success" if summary.get("失败步骤", 0) == 0 else (
-            "partial" if summary.get("成功步骤", 0) > 0 else "failed"),
+        "status": final_status,
         "config_path": config_path_resolved,
         "output_root": str(Path(output_root).resolve()) if output_root else "",
         "report_dir": str(Path(report_dir).resolve()),
@@ -901,6 +935,12 @@ def _append_run_history(manifest: BatchManifest, config_path_resolved: str,
         "summary": summary,
         "steps": steps_slim,
         "key_metrics": key_metrics,
+        "quality_gates": {
+            "pass": qg_pass,
+            "warn": qg_warn,
+            "block": qg_block,
+            "rules": qg_list,
+        },
     }
 
     line = json.dumps(record, ensure_ascii=False, default=str)

@@ -1,0 +1,32 @@
+# 场景 1: 正常数据（对照基准）
+# 预期: G1 PASS, G1b WARN(如有高空值列), G2 PASS, G2b PASS, G3 PASS(若无历史则SKIP), G4 PASS
+batch_task:
+  task_name: "QG_scenario1_normal_pass"
+  inputs:
+    transactions:
+      - test_data/qg_testdata/txn_normal.csv
+    chargebacks:
+      - test_data/qg_testdata/chargebacks.csv
+    blacklists:
+      - test_data/qg_testdata/blacklists.csv
+  output:
+    base_dir: ./output_qg/01_normal_pass
+  import:
+    field_mapping: {}
+    null_threshold_pct: 30.0
+  split:
+    method: ratio
+    ratios: [0.7, 0.2, 0.1]
+    stratified: true
+    prevent_card_leak: true
+  mask:
+    fields: [cardholder_name, id_card, phone]
+  export:
+    formats: [csv, xlsx]
+    include: ["train*"]
+    prefix: ""
+  quality_gates:
+    block_on_empty_train: true
+    block_on_missing_required: true
+    fraud_rate_warn_range: [0.0005, 0.15]
+    max_fraud_rate_volatility_pct: 50.0

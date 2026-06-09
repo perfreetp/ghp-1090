@@ -174,8 +174,11 @@ FIELD_ALIASES = {
 
 def _write_detailed_report(check_results: List[FieldCheckResult],
                            output_dir: str,
-                           applied_mappings: List[Dict]) -> None:
-    """写入详细的字段检查报告"""
+                           applied_mappings: List[Dict],
+                           high_null_threshold: float = 0.3) -> None:
+    """写入详细的字段检查报告
+    high_null_threshold: 高于此比例空值列标记为「高比例空值」供 Quality Gates 判定
+    """
     out_dir = Path(output_dir)
 
     # --- CSV 详细报告 ---
@@ -194,7 +197,7 @@ def _write_detailed_report(check_results: List[FieldCheckResult],
             row["字段名"] = f
             row["空值数"] = ""
             row["空值率%"] = ""
-            row["严重程度"] = "严重"
+            row["严重程度"] = "必填缺失"       # Quality Gates 依赖此关键字
             report_rows.append(row)
         for f in r.missing_optional:
             row = dict(base_info)
@@ -202,16 +205,24 @@ def _write_detailed_report(check_results: List[FieldCheckResult],
             row["字段名"] = f
             row["空值数"] = ""
             row["空值率%"] = ""
-            row["严重程度"] = "提示"
+            row["严重程度"] = "信息缺失"
             report_rows.append(row)
-        # 高比例空值
+        # 高比例空值（严格按传入 high_null_threshold 阈值）
         n = max(r.total_rows, 1)
         for col, null_cnt in r.null_counts.items():
             pct = null_cnt / n * 100
-            severity = "严重" if pct >= 80 else ("警告" if pct >= 50 else ("提示" if pct >= 20 else ""))
+            threshold_pct = high_null_threshold * 100
+            severity = ""
+            item_name = ""
+            if pct >= threshold_pct:
+                severity = "高比例空值"     # Quality Gates 依赖此关键字
+                item_name = f"高比例空值(>={int(threshold_pct)}%)"
+            elif pct >= 20:
+                severity = "轻微空值"
+                item_name = "空值偏高(>=20%)"
             if severity:
                 row = dict(base_info)
-                row["检查项"] = f"高比例空值(≥20%)"
+                row["检查项"] = item_name
                 row["字段名"] = col
                 row["空值数"] = null_cnt
                 row["空值率%"] = round(pct, 2)
@@ -449,7 +460,8 @@ def cmd_import(args: argparse.Namespace) -> int:
 
     # 5. 写详细报告文件
     try:
-        _write_detailed_report(check_results, output_dir, applied_mappings)
+        _write_detailed_report(check_results, output_dir, applied_mappings,
+                               high_null_threshold=null_threshold / 100.0)
         logger.info("详细字段检查报告已写入 import_field_check_report.csv/.md")
     except Exception as e:
         logger.warning(f"写详细报告失败: {e}")

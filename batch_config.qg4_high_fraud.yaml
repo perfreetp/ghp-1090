@@ -1,0 +1,31 @@
+# 场景 4: 高欺诈率（chargebacks_high.csv 让 25% 交易被拒付）+ 波动阈值严格
+# 预期: G4 WARN(25% 超 15%), G3 WARN(若前次历史为 1.6% 则环比 > 50%), status=success但有警告
+batch_task:
+  task_name: "QG_scenario4_high_fraud_warn"
+  inputs:
+    transactions:
+      - test_data/qg_testdata/txn_normal.csv
+    chargebacks:
+      - test_data/qg_testdata/chargebacks_high.csv
+    blacklists:
+      - test_data/qg_testdata/blacklists.csv
+  output:
+    base_dir: ./output_qg/04_high_fraud_warn
+  import:
+    field_mapping: {}
+    null_threshold_pct: 30.0
+  split:
+    method: ratio
+    ratios: [0.7, 0.2, 0.1]
+    stratified: true
+  mask:
+    fields: [cardholder_name, id_card, phone]
+  export:
+    formats: [csv, xlsx]
+    include: ["train*"]
+    prefix: ""
+  quality_gates:
+    block_on_empty_train: false
+    block_on_missing_required: false
+    fraud_rate_warn_range: [0.0005, 0.15]       # 经验上限 15%
+    max_fraud_rate_volatility_pct: 50.0         # 环比波动 >50% 即告警

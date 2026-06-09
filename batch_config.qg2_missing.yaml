@@ -1,0 +1,30 @@
+# 场景 2: 缺必填字段（txn_time, amt 两列缺失）+ 开启阻断
+# 预期: G1 BLOCK(必填缺失=2), G2 PASS, G3 SKIP, status=blocked, exit_code=101
+batch_task:
+  task_name: "QG_scenario2_missing_required_block"
+  inputs:
+    transactions:
+      - test_data/qg_testdata/txn_missing_required.csv
+    chargebacks:
+      - test_data/qg_testdata/chargebacks.csv
+    blacklists:
+      - test_data/qg_testdata/blacklists.csv
+  output:
+    base_dir: ./output_qg/02_missing_required_block
+  import:
+    field_mapping: {}
+    null_threshold_pct: 30.0
+  split:
+    method: ratio
+    ratios: [0.7, 0.2, 0.1]
+  mask:
+    fields: [cardholder_name, id_card, phone]
+  export:
+    formats: [csv, xlsx]
+    include: ["train*"]
+    prefix: ""
+  quality_gates:
+    block_on_empty_train: true
+    block_on_missing_required: true       # ★ 开启缺字段阻断
+    fraud_rate_warn_range: [0.0005, 0.15]
+    max_fraud_rate_volatility_pct: 50.0

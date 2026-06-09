@@ -1,0 +1,5 @@
+﻿文件类型,文件路径,文件名称,总行数,检查项,字段名,空值数,空值率%,严重程度
+交易文件,test_data/qg_testdata/txn_train_empty.csv,txn_train_empty.csv,5,高比例空值(>=50%),installment,3,60.0,高比例空值
+交易文件,test_data/qg_testdata/txn_train_empty.csv,txn_train_empty.csv,5,高比例空值(>=50%),cashback,3,60.0,高比例空值
+交易文件,test_data/qg_testdata/txn_train_empty.csv,txn_train_empty.csv,5,高比例空值(>=50%),rule_hit,5,100.0,高比例空值
+交易文件,test_data/qg_testdata/txn_train_empty.csv,txn_train_empty.csv,5,高比例空值(>=50%),manual_result,5,100.0,高比例空值

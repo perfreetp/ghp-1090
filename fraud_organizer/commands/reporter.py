@@ -154,16 +154,16 @@ def _find_high_risk_features(df: pd.DataFrame, label_col: str,
 
 
 def _temporal_analysis(df: pd.DataFrame, time_col: str,
-                        label_col: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    """时间维度分析（日趋势 + 星期）"""
+                        label_col: str) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """时间维度分析（月度趋势 + 日趋势 + 星期）"""
     if len(df) == 0 or time_col not in df.columns or label_col not in df.columns:
-        return pd.DataFrame(), pd.DataFrame()
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
     work = df[[time_col, label_col]].copy()
     work[time_col] = pd.to_datetime(work[time_col], errors="coerce")
     work = work.dropna(subset=[time_col])
     if len(work) == 0:
-        return pd.DataFrame(), pd.DataFrame()
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
     # 月度趋势（增强：按月份）
     work["月份"] = work[time_col].dt.to_period("M").astype(str)
@@ -200,7 +200,7 @@ def _temporal_analysis(df: pd.DataFrame, time_col: str,
     weekday["欺诈率"] = (weekday["欺诈数"] / weekday["总交易数"]).round(4)
     weekday["欺诈率(格式化)"] = weekday["欺诈率"].apply(lambda x: f"{x:.2%}")
 
-    return (monthly, daily, weekday) if "月份" in str(type(monthly)) else (daily, weekday)
+    return (monthly, daily, weekday)
 
 
 def _dimension_summary(df: pd.DataFrame, label_col: str,
@@ -582,13 +582,7 @@ def cmd_report(args: argparse.Namespace) -> int:
                 hv.to_excel(writer, sheet_name=f"05_Feature_{hk[:8]}_主集", index=False)
 
             # 5) 月度趋势 + 维度汇总（主集稳定输出）
-            temporal_result = _temporal_analysis(df, time_col, label_col)
-            monthly, daily, weekday = (pd.DataFrame(), pd.DataFrame(), pd.DataFrame())
-            if len(temporal_result) >= 3:
-                monthly, daily, weekday = temporal_result[0], temporal_result[1], temporal_result[2]
-            elif len(temporal_result) == 2:
-                daily, weekday = temporal_result
-
+            monthly, daily, weekday = _temporal_analysis(df, time_col, label_col)
             first_monthly = monthly
 
             dim_cols = {k: v for k, v in default_dim.items() if v != "_month"}
@@ -653,14 +647,20 @@ def cmd_report(args: argparse.Namespace) -> int:
             if split_fps:
                 rows_cmp = []
                 for m in all_metrics:
+                    # 统一数值键名对齐 (支持 _calc_fraud_metrics 的返回键
+                    total = m.get("总样本数", 0)
+                    fraud_n = m.get("欺诈交易数", 0)
+                    suspect_n = m.get("可疑交易数", 0)
+                    genuine_n = m.get("真实交易数", 0)
+                    fr = round(fraud_n / max(total, 1) * 100, 2)
                     rows_cmp.append({
                         "数据集": m.get("_file", ""),
                         "角色": m.get("_角色", ""),
-                        "总样本数": m.get("总样本数", 0),
-                        "欺诈数": m.get("欺诈样本数", 0),
-                        "可疑数": m.get("可疑样本数", 0),
-                        "真实数": m.get("真实样本数", 0),
-                        "欺诈率(%)": m.get("整体欺诈率(%)", 0.0),
+                        "总样本数": total,
+                        "欺诈数": fraud_n,
+                        "可疑数": suspect_n,
+                        "真实数": genuine_n,
+                        "欺诈率(%)": fr,
                     })
                 pd.DataFrame(rows_cmp).to_excel(
                     writer, sheet_name="00_拆分集对比", index=False)

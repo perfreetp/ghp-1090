@@ -1,0 +1,13 @@
+导出时间: 2026-06-10 00:07:14.254436
+输出格式: ['csv', 'xlsx']
+文件数量: 8
+
+文件清单:
+  backtest__backtest.csv                                 79.4 KB
+  backtest__backtest.xlsx                                64.8 KB
+  mask_summary.csv                                        0.1 KB
+  mask_summary.xlsx                                       4.9 KB
+  train__train.csv                                      548.2 KB
+  train__train.xlsx                                     415.3 KB
+  valid__valid.csv                                      156.1 KB
+  valid__valid.xlsx                                     121.6 KB
