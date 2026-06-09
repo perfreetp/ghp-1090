@@ -182,7 +182,38 @@ def cmd_export(args: argparse.Namespace) -> int:
             logger.info(f"  采样: {len(df)} 行")
 
         if len(df) == 0:
-            logger.warning(f"  过滤后为空，跳过")
+            logger.warning(f"  过滤/输入为空，生成占位文件")
+            # 生成占位 CSV / Excel，确保下游调度无需分支判断
+            for fmt in formats:
+                ext = FORMAT_EXT.get(fmt.lower().strip(), ".csv")
+                out_stem = args.prefix + stem if args.prefix else stem
+                if fmt.lower() in ("xlsx", "excel"):
+                    out_path = Path(output_dir) / f"{out_stem}{ext}"
+                    with pd.ExcelWriter(str(out_path), engine="openpyxl") as writer:
+                        df.to_excel(writer, index=False, sheet_name="数据(空占位)")
+                        pd.DataFrame([
+                            ["状态", "空数据集占位"],
+                            ["原因", f"{stem} 过滤后为空"],
+                            ["生成时间", str(pd.Timestamp.now())],
+                        ]).to_excel(writer, sheet_name="说明", index=False, header=False)
+                    logger.info(f"  占位 Excel: {out_path.name} (空数据集)")
+                elif fmt.lower() in ("csv", "tsv"):
+                    out_path = Path(output_dir) / f"{out_stem}{ext}"
+                    df.to_csv(str(out_path), index=False,
+                              encoding=args.encoding or "utf-8-sig",
+                              sep="\t" if fmt.lower() == "tsv" else (args.sep or ","))
+                    logger.info(f"  占位 {fmt.upper()}: {out_path.name} (0 行, 列骨架保留)")
+                elif fmt.lower() in ("json", "jsonl"):
+                    out_path = Path(output_dir) / f"{out_stem}{ext}"
+                    df.to_json(str(out_path), orient="records", force_ascii=False)
+                    logger.info(f"  占位 {fmt.upper()}: {out_path.name}")
+                else:
+                    # pickle/parquet 等仍然写空 DataFrame
+                    out_path = Path(output_dir) / f"{out_stem}{ext}"
+                    save_file(df, str(out_path))
+                    logger.info(f"  占位 {fmt.upper()}: {out_path.name}")
+                total_exported += 1
+            _write_empty_export_note(output_dir, stem, "过滤或输入为空")
             continue
 
         # 10. 按格式导出
@@ -345,3 +376,30 @@ def register_subparser(subparsers) -> None:
                    default="full", help="样本提交格式类型")
     p.add_argument("--id-col", default="txn_id", help="样本提交格式的ID列")
     p.set_defaults(func=cmd_export)
+
+
+def _write_empty_export_note(output_dir: str, stem: str, reason: str) -> None:
+    """在导出目录写空数据说明（追加，避免多次覆盖）"""
+    ensure_dir(output_dir)
+    note_path = Path(output_dir) / "EMPTY_EXPORT_NOTE.txt"
+    ts = pd.Timestamp.now()
+    line = f"[{ts}] 文件={stem} 原因={reason}\n"
+    try:
+        if not note_path.exists():
+            header = (
+                "空导出说明\n"
+                "==========\n"
+                "说明: 本目录下文件名包含「空占位」或0行的 CSV/Excel/JSON 等，"
+                "是输入数据为空或过滤后无匹配记录时自动生成的。\n"
+                "      目的是让下游调度系统无需分支判断即可正常处理，避免因文件缺失导致失败。\n\n"
+                "处理建议:\n"
+                "  - 检查上游 import/label/split 步骤是否产出有效样本\n"
+                "  - 检查 exporter --label-filter / --date-from / --date-to / --sample 等过滤参数是否过于严格\n\n"
+                "具体明细（每个空输出一行）:\n"
+            )
+            with open(note_path, "w", encoding="utf-8") as f:
+                f.write(header)
+        with open(note_path, "a", encoding="utf-8") as f:
+            f.write(line)
+    except Exception:
+        pass

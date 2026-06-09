@@ -1,6 +1,6 @@
 # 测试用批配置 - 指向 generate_test_data.py 生成的 demo 数据
-task_name: "端到端验证测试批"
-task_description: "用于验证批处理命令功能的演示配置"
+task_name: "端到端验证测试批-2月(对比用)"
+task_description: "模拟第二个月跑批结果，用于 compare 命令测试"
 owner: "dev"
 
 data_paths:
@@ -12,7 +12,7 @@ data_paths:
     - "./test_data/blacklists.csv"
 
 output:
-  base_dir: "./output_test_batch"
+  base_dir: "./output_batch2"
   manifest_format: ["csv", "markdown"]
   use_step_dirs: true
 

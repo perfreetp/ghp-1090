@@ -3,7 +3,7 @@
 import logging
 import argparse
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional, Any
 
 import pandas as pd
 import numpy as np
@@ -255,12 +255,15 @@ def _generate_business_markdown(
     dim_summaries: Dict[str, pd.DataFrame],
     hr: Dict[str, pd.DataFrame],
     output_dir: str,
+    primary_label: str = "",
 ) -> Path:
     """生成业务同事友好的 Markdown 报告"""
     lines = []
     lines.append("# 反欺诈样本分析报告（业务视角）")
     lines.append("")
     lines.append(f"**生成时间**: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    if primary_label:
+        lines.append(f"**分析口径**: 本报告基于主集 `{primary_label}` 计算；train/valid/backtest 拆分子集仅作为 Excel 补充 sheet 展示，不参与本报告指标计算。")
     lines.append("")
 
     # 1. 执行摘要
@@ -458,8 +461,40 @@ def cmd_report(args: argparse.Namespace) -> int:
         _write_empty_report(output_dir, "未找到有效的带标签数据集（.pkl）")
         return 0
 
+    # ---- 输入文件分类：主集 vs 拆分集（口径修复） ----
+    # 主集：优先 transactions_labeled.pkl（完整样本集），否则第一个含 fraud_label 的
+    primary_fp: Optional[str] = None
+    split_fps: List[str] = []
+    split_names = {"train", "valid", "backtest", "test", "holdout"}
+    for fp in input_files:
+        name = Path(fp).stem.lower()
+        if "transactions_labeled" in name or name == "transactions_labeled":
+            primary_fp = fp
+            break
+    if primary_fp is None:
+        for fp in input_files:
+            try:
+                df_hint = read_file(fp)
+                if "fraud_label" in df_hint.columns and len(df_hint) > 0:
+                    primary_fp = fp
+                    break
+            except Exception:
+                continue
+    if primary_fp is None:
+        primary_fp = input_files[0]
+    for fp in input_files:
+        if fp == primary_fp:
+            continue
+        stem = Path(fp).stem.lower().replace("__train", "").replace("__valid", "").replace("__backtest", "")
+        if any(s in stem for s in split_names):
+            split_fps.append(fp)
+
     print("=" * 60)
     print("反欺诈样本分析报告")
+    print("=" * 60)
+    print(f"[口径说明] 主分析集: {Path(primary_fp).name}（用于整体指标/月度趋势/维度/特征摘要）")
+    if split_fps:
+        print(f"[补充说明]   拆分子集: {', '.join(Path(p).name for p in split_fps)}（仅在 Excel 作为补充 sheet 展示）")
     print("=" * 60)
 
     excel_path = Path(output_dir) / "fraud_report.xlsx"
@@ -473,127 +508,166 @@ def cmd_report(args: argparse.Namespace) -> int:
             pd.DataFrame([
                 ["报告名称", "反欺诈样本分析报告"],
                 ["生成时间", pd.Timestamp.now()],
-                ["输入文件数", len(input_files)],
+                ["主分析集", Path(primary_fp).name],
+                ["输入文件数 (主+拆分)", len(input_files)],
+                ["拆分补充集数", len(split_fps)],
                 ["分析维度", ", ".join(default_dim.keys())],
                 ["高风险特征Top", args.top_k],
+                ["口径说明", "整体指标/月度趋势/维度/业务Markdown均基于主集；train/valid/backtest仅补充sheet"],
             ]).to_excel(writer, sheet_name="00_报告说明", index=False, header=False)
 
-            # 每个输入文件分析
+            # ============ 1. 主集分析 ============
             first_monthly = pd.DataFrame()
             first_dims = {}
             first_hr = {}
             first_metrics = {}
 
-            for file_idx, fp in enumerate(input_files, 1):
-                fname = Path(fp).name
-                logger.info(f"分析文件: {fname}")
+            fname = Path(primary_fp).name
+            logger.info(f"[主集] 分析: {fname}")
+            try:
+                df = read_file(primary_fp)
+            except Exception as e:
+                logger.warning(f"读取主集失败 {primary_fp}: {e}")
+                df = pd.DataFrame()
+
+            is_empty = len(df) == 0
+            if is_empty:
+                empty_count += 1
+
+            print(f"\n{'─' * 50}")
+            print(f"[主集分析] {fname}")
+            print(f"{'─' * 50}")
+
+            # 1) 核心指标
+            metrics = _calc_fraud_metrics(df, label_col)
+            metrics["_file"] = fname
+            metrics["_角色"] = "主集(primary)"
+            all_metrics.append(metrics)
+            first_metrics = metrics
+
+            print("\n[核心指标]")
+            for k, v in metrics.items():
+                if not k.startswith("_"):
+                    print(f"  {k}: {v}")
+
+            # 2) 样本覆盖
+            coverage = _calc_coverage(df, key_cols)
+            print("\n[关键字段覆盖率]")
+            for k, v in coverage.items():
+                if not k.startswith("_"):
+                    print(f"  {k}: {v}")
+
+            # 3) 类别失衡
+            imbalance = _calc_class_imbalance(df, label_col)
+            if len(imbalance) > 0:
+                print("\n[类别分布]")
+                show_cols = [c for c in ["标签编码", "标签名称", "样本数", "占比(格式化)", "失衡权重(相对欺诈)"] if c in imbalance.columns]
+                print(imbalance[show_cols].to_string(index=False))
+                imbalance.to_excel(writer, sheet_name="02_类别分布_主集", index=False)
+            pd.DataFrame([[k, v] for k, v in metrics.items() if not k.startswith("_")],
+                         columns=["指标", "值"]).to_excel(
+                writer, sheet_name="01_核心指标_主集", index=False)
+
+            # 4) 高风险特征（主集完整）
+            hr = _find_high_risk_features(df, label_col, cat_cols, num_cols, args.top_k)
+            first_hr = hr
+            for hk, hv in hr.items():
+                print(f"\n[高风险特征] {hk} Top{args.top_k}:")
+                if hk == "高风险类别特征":
+                    show_cols = ["特征", "取值", "样本数", "欺诈数", "欺诈率(格式化)", "欺诈贡献(格式化)"]
+                else:
+                    show_cols = ["特征", "欺诈均值", "正常均值", "差值", "效应量(Cohen's d)", "显著性判断"]
+                show_cols = [c for c in show_cols if c in hv.columns]
+                print(hv[show_cols].to_string(index=False))
+                hv.to_excel(writer, sheet_name=f"05_Feature_{hk[:8]}_主集", index=False)
+
+            # 5) 月度趋势 + 维度汇总（主集稳定输出）
+            temporal_result = _temporal_analysis(df, time_col, label_col)
+            monthly, daily, weekday = (pd.DataFrame(), pd.DataFrame(), pd.DataFrame())
+            if len(temporal_result) >= 3:
+                monthly, daily, weekday = temporal_result[0], temporal_result[1], temporal_result[2]
+            elif len(temporal_result) == 2:
+                daily, weekday = temporal_result
+
+            first_monthly = monthly
+
+            dim_cols = {k: v for k, v in default_dim.items() if v != "_month"}
+            dim_summaries = _dimension_summary(df, label_col, dim_cols)
+            first_dims = dim_summaries
+
+            for dim_name, dim_df in dim_summaries.items():
+                if len(dim_df) > 0:
+                    print(f"\n[维度汇总] {dim_name} (Top 10):")
+                    show_cols = [dim_name, "总交易数", "交易占比(格式化)",
+                                 "欺诈数", "欺诈率(格式化)", "风险等级"]
+                    show_cols = [c for c in show_cols if c in dim_df.columns]
+                    print(dim_df[show_cols].head(10).to_string(index=False))
+                    safe = dim_name.replace("/", "_").replace("(", "").replace(")", "")[:12]
+                    dim_df.to_excel(writer, sheet_name=f"04_Dim_{safe}_主集", index=False)
+
+            if len(monthly) > 0:
+                print(f"\n[月度趋势] (共 {len(monthly)} 个月):")
+                show_cols = [c for c in ["月份", "总交易数", "欺诈数", "欺诈率(格式化)", "可疑率", "环比欺诈量变化(格式化)"] if c in monthly.columns]
+                print(monthly[show_cols].to_string(index=False))
+                monthly.to_excel(writer, sheet_name="03_月度趋势_主集", index=False)
+            if len(daily) > 0:
+                daily.to_excel(writer, sheet_name="Z9_每日趋势_主集", index=False)
+            if len(weekday) > 0:
+                print("\n[星期分布]:")
+                print(weekday[["星期", "总交易数", "欺诈数", "欺诈率(格式化)"]].to_string(index=False))
+                weekday.to_excel(writer, sheet_name="Z8_星期分布_主集", index=False)
+
+            # 主集覆盖率 sheet
+            pd.DataFrame([[k, v] for k, v in coverage.items() if not k.startswith("_")],
+                         columns=["字段", "覆盖率"]).to_excel(
+                writer, sheet_name="Z7_覆盖率_主集", index=False)
+
+            # ============ 2. 拆分集分析（仅补充 Sheet，不进业务 Markdown） ============
+            for split_idx, sfp in enumerate(split_fps, 1):
+                sname = Path(sfp).name
+                logger.info(f"[拆分集] 处理: {sname}")
                 try:
-                    df = read_file(fp)
+                    sdf = read_file(sfp)
                 except Exception as e:
-                    logger.warning(f"读取失败 {fp}: {e}")
+                    logger.warning(f"读取拆分集失败 {sfp}: {e}")
                     continue
 
-                is_empty = len(df) == 0
-                if is_empty:
+                s_empty = len(sdf) == 0
+                if s_empty:
                     empty_count += 1
+                sm = _calc_fraud_metrics(sdf, label_col)
+                sm["_file"] = sname
+                sm["_角色"] = "拆分集(split)"
+                all_metrics.append(sm)
+                srole = Path(sfp).stem
+                # 核心指标 sheet
+                pd.DataFrame([[k, v] for k, v in sm.items() if not k.startswith("_")],
+                             columns=["指标", "值"]).to_excel(
+                    writer, sheet_name=f"S{split_idx}_指标_{srole[:12]}", index=False)
+                simb = _calc_class_imbalance(sdf, label_col)
+                if len(simb) > 0:
+                    simb.to_excel(writer, sheet_name=f"S{split_idx}_标签分布_{srole[:10]}", index=False)
+                # 拆分集欺诈率对比：一行对比表追加到汇总
 
-                print(f"\n{'─' * 50}")
-                print(f"[文件分析] {fname}")
-                print(f"{'─' * 50}")
-
-                # 1. 核心指标
-                metrics = _calc_fraud_metrics(df, label_col)
-                metrics["_file"] = fname
-                all_metrics.append(metrics)
-                first_metrics = metrics
-
-                print("\n[核心指标]")
-                for k, v in metrics.items():
-                    if not k.startswith("_"):
-                        print(f"  {k}: {v}")
-
-                # 2. 样本覆盖
-                coverage = _calc_coverage(df, key_cols)
-                print("\n[关键字段覆盖率]")
-                for k, v in coverage.items():
-                    if not k.startswith("_"):
-                        print(f"  {k}: {v}")
-
-                # 3. 类别失衡
-                imbalance = _calc_class_imbalance(df, label_col)
-                if len(imbalance) > 0:
-                    print("\n[类别分布]")
-                    show_cols = [c for c in ["标签编码", "标签名称", "样本数", "占比(格式化)", "失衡权重(相对欺诈)"] if c in imbalance.columns]
-                    print(imbalance[show_cols].to_string(index=False))
-                    sheet_key = f"{file_idx:02d}_类别分布_{fname.split('.')[0][:18]}"
-                    imbalance.to_excel(writer, sheet_name=sheet_key[:31], index=False)
-
-                # 4. 高风险特征
-                hr = _find_high_risk_features(df, label_col, cat_cols, num_cols, args.top_k)
-                first_hr = hr
-                for hk, hv in hr.items():
-                    print(f"\n[高风险特征] {hk} Top{args.top_k}:")
-                    # 选择展示列
-                    if hk == "高风险类别特征":
-                        show_cols = ["特征", "取值", "样本数", "欺诈数", "欺诈率(格式化)", "欺诈贡献(格式化)"]
-                    else:
-                        show_cols = ["特征", "欺诈均值", "正常均值", "差值", "效应量(Cohen's d)", "显著性判断"]
-                    show_cols = [c for c in show_cols if c in hv.columns]
-                    print(hv[show_cols].to_string(index=False))
-                    sheet_key = f"{file_idx:02d}_{hk[:14]}_{fname.split('.')[0][:10]}"
-                    hv.to_excel(writer, sheet_name=sheet_key[:31], index=False)
-
-                # 5. 时间 + 维度汇总（仅对第一个主文件生成详细维度分析）
-                temporal_result = _temporal_analysis(df, time_col, label_col)
-                monthly, daily, weekday = (pd.DataFrame(), pd.DataFrame(), pd.DataFrame())
-                if len(temporal_result) == 3:
-                    monthly, daily, weekday = temporal_result
-                elif len(temporal_result) == 2:
-                    daily, weekday = temporal_result
-
-                first_monthly = monthly
-
-                # 维度汇总
-                dim_cols = {k: v for k, v in default_dim.items() if v != "_month"}
-                dim_summaries = _dimension_summary(df, label_col, dim_cols)
-                first_dims = dim_summaries
-
-                for dim_name, dim_df in dim_summaries.items():
-                    if len(dim_df) > 0:
-                        print(f"\n[维度汇总] {dim_name} (Top 10):")
-                        show_cols = [dim_name, "总交易数", "交易占比(格式化)",
-                                     "欺诈数", "欺诈率(格式化)", "风险等级"]
-                        show_cols = [c for c in show_cols if c in dim_df.columns]
-                        print(dim_df[show_cols].head(10).to_string(index=False))
-                        sheet_key = f"{file_idx:02d}_维度_{dim_name[:10]}"
-                        dim_df.to_excel(writer, sheet_name=sheet_key[:31], index=False)
-
-                if len(monthly) > 0:
-                    print(f"\n[月度趋势] (共 {len(monthly)} 个月):")
-                    show_cols = [c for c in ["月份", "总交易数", "欺诈数", "欺诈率(格式化)", "可疑率", "环比欺诈量变化(格式化)"] if c in monthly.columns]
-                    print(monthly[show_cols].to_string(index=False))
-                    sheet_key = f"{file_idx:02d}_月度趋势"
-                    monthly.to_excel(writer, sheet_name=sheet_key, index=False)
-                if len(daily) > 0:
-                    sheet_key = f"{file_idx:02d}_每日趋势"
-                    daily.to_excel(writer, sheet_name=sheet_key, index=False)
-                if len(weekday) > 0:
-                    print("\n[星期分布]:")
-                    print(weekday[["星期", "总交易数", "欺诈数", "欺诈率(格式化)"]].to_string(index=False))
-                    sheet_key = f"{file_idx:02d}_星期分布"
-                    weekday.to_excel(writer, sheet_name=sheet_key, index=False)
-
-                # 单文件指标到Excel
-                metrics_df = pd.DataFrame(
-                    [[k, v] for k, v in metrics.items() if not k.startswith("_")],
-                    columns=["指标", "值"]
-                )
-                sheet_key = f"{file_idx:02d}_核心指标_{fname.split('.')[0][:15]}"
-                metrics_df.to_excel(writer, sheet_name=sheet_key[:31], index=False)
+            # --- 拆分集欺诈率对比 Sheet ---
+            if split_fps:
+                rows_cmp = []
+                for m in all_metrics:
+                    rows_cmp.append({
+                        "数据集": m.get("_file", ""),
+                        "角色": m.get("_角色", ""),
+                        "总样本数": m.get("总样本数", 0),
+                        "欺诈数": m.get("欺诈样本数", 0),
+                        "可疑数": m.get("可疑样本数", 0),
+                        "真实数": m.get("真实样本数", 0),
+                        "欺诈率(%)": m.get("整体欺诈率(%)", 0.0),
+                    })
+                pd.DataFrame(rows_cmp).to_excel(
+                    writer, sheet_name="00_拆分集对比", index=False)
 
             # --- 汇总 Sheet ---
             if all_metrics:
-                summary_df = pd.DataFrame(all_metrics).rename(columns={"_file": "文件"})
+                summary_df = pd.DataFrame(all_metrics).rename(columns={"_file": "文件", "_角色": "角色"})
                 summary_df.to_excel(writer, sheet_name="01_汇总", index=False)
 
             # --- 空数据集说明 ---
@@ -601,17 +675,17 @@ def cmd_report(args: argparse.Namespace) -> int:
                 pd.DataFrame([
                     ["空数据集数量", empty_count],
                     ["说明", "以下输入文件为空 DataFrame，未参与分析"],
-                    ["空数据集文件", "\n".join(m.get("_file", "?") for m in all_metrics if m.get("_empty") or m.get("总样本数") == 0)],
+                    ["空数据集文件", "\n".join(m.get("_file", "?") for m in all_metrics if m.get("_empty") or m.get("总样本数", -1) == 0)],
                 ]).to_excel(writer, sheet_name="ZZ_空数据集说明", index=False, header=False)
     except Exception as e:
         logger.exception(f"写 Excel 报告失败: {e}")
         return 1
 
-    # 生成 Markdown 业务报告
+    # 生成 Markdown 业务报告（明确基于主集）
     md_path = _generate_business_markdown(
-        read_file(input_files[0]) if len(input_files) > 0 else pd.DataFrame(),
-        label_col, time_col, first_metrics, first_monthly,
+        df, label_col, time_col, first_metrics, first_monthly,
         first_dims, first_hr, output_dir,
+        primary_label=Path(primary_fp).name,
     )
 
     # 文本报告

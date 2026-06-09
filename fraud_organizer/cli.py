@@ -8,7 +8,7 @@ from . import __version__
 from .utils import setup_logging
 from .commands import (
     importer, cleaner, labeler, profiler,
-    splitter, masker, reporter, exporter, runner,
+    splitter, masker, reporter, exporter, runner, compare,
 )
 
 logger = logging.getLogger(__name__)
@@ -57,6 +57,7 @@ def create_parser() -> argparse.ArgumentParser:
     reporter.register_subparser(subparsers)
     exporter.register_subparser(subparsers)
     runner.register_subparser(subparsers)
+    compare.register_subparser(subparsers)
 
     # 流水线命令
     pipeline = subparsers.add_parser("pipeline", aliases=["all"],

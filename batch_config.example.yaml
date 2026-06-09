@@ -155,3 +155,20 @@ skip_steps: []                    # 可选值: import / clean / label / profile 
 stop_on_error: false
 # 日志级别
 log_level: "INFO"                 # DEBUG / INFO / WARNING
+
+# ---------- 10. 质量门禁 (Quality Gates) ----------
+# 跑批完成前自动校验；结果写入 batch_manifest 和 quality_gates_report.csv
+# 状态: PASS(通过) / WARN(告警，不阻断流程) / BLOCK(阻断，返回码>0) / SKIP(跳过)
+quality_gates:
+  # 必填字段缺失：BLOCK=true 时若有缺失则整批失败（默认不阻断）
+  block_on_missing_required: false
+  # 主集(labeled)或训练集(train)为空：默认阻断，防止下游模型训练失败
+  block_on_empty_train: true
+  # 欺诈率范围合理性校验（低于低值或高于高值都标 WARN）
+  # 经验区间：0.05% ~ 15%（即 0.0005 ~ 0.15）
+  fraud_rate_warn_range: [0.0005, 0.15]
+  # 欺诈率环比波动阈值（相对最近一次历史跑批）
+  # 例如 50 表示环比变动 > 50% 时标 WARN
+  max_fraud_rate_volatility_pct: 50.0
+  # import 高空值列阈值：与 import.high_null_threshold 保持一致即可
+  high_null_threshold: 0.30

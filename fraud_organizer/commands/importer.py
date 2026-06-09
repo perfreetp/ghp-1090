@@ -256,7 +256,7 @@ def _write_detailed_report(check_results: List[FieldCheckResult],
         md_lines.append("")
 
         if r.missing_required:
-            md_lines.append("### ⚠ 缺失必填字段")
+            md_lines.append("### [警告] 缺失必填字段")
             md_lines.append("")
             md_lines.append("| 字段名 | 说明 |")
             md_lines.append("|--------|------|")
@@ -284,7 +284,7 @@ def _write_detailed_report(check_results: List[FieldCheckResult],
                      for col, cnt in sorted(r.null_counts.items(), key=lambda x: -x[1])
                      if cnt / n >= 0.2]
         if high_null:
-            md_lines.append("### 📊 空值严重的列（≥20%）")
+            md_lines.append("### [数据质量] 空值严重的列（≥20%）")
             md_lines.append("")
             md_lines.append("| 列名 | 空值数 | 空值率 | 建议 |")
             md_lines.append("|------|--------|--------|------|")
@@ -434,14 +434,14 @@ def cmd_import(args: argparse.Namespace) -> int:
 
     # 重点摘要：缺失字段汇总
     if missing_summary:
-        print("\n⚠ 缺失必填字段汇总:")
+        print("\n[警告] 缺失必填字段汇总:")
         print("  文件                 缺失字段")
         print("  " + "-" * 56)
         for fname, miss in missing_summary:
             print(f"  {fname[:20]:20s} {', '.join(miss)}")
 
     if high_null_summary:
-        print(f"\n⚠ 空值率 ≥ {null_threshold:.0f}% 的列 (Top):")
+        print(f"\n[数据质量] 空值率 >= {null_threshold:.0f}% 的列 (Top):")
         print(f"  {'文件':20s} {'列名':20s} {'空值率':>8s}  {'空值数':>8s}")
         print("  " + "-" * 60)
         for fname, col, pct, cnt in high_null_summary:
