@@ -1,22 +1,22 @@
 # 批处理任务清单: QG_scenario1_normal_pass
 
-- **开始时间**: 2026-06-10 00:05:17
-- **结束时间**: 2026-06-10 00:05:23
-- **总耗时**: 6.32 秒
+- **开始时间**: 2026-06-10 00:14:04
+- **结束时间**: 2026-06-10 00:14:10
+- **总耗时**: 6.40 秒
 - **配置文件**: `D:\TraeProjects\1090\batch_config.qg1_normal.yaml`
 
 ## 步骤执行摘要
 
 | 步骤 | 状态 | 耗时(秒) | 输入数 | 输出数 | 说明 |
 |------|------|----------|--------|--------|------|
-| import | ✓ success | 0.08 | 3 | 3 | 返回码=0 |
-| clean | ✓ success | 0.11 | 1 | 2 | 返回码=0 |
-| label | ✓ success | 0.06 | 2 | 2 | 返回码=0 |
-| profile | ✓ success | 1.51 | 1 | 9 | 返回码=0 |
-| split | ✓ success | 0.11 | 1 | 7 | 返回码=0, 方式=ratio |
-| mask | ✓ success | 0.12 | 3 | 4 | 处理 3 个拆分文件 |
-| report | ✓ success | 0.49 | 4 | 3 | 返回码=0 |
-| export | ✓ success | 3.83 | 4 | 9 | 返回码=0, 格式=['csv', 'xlsx'] |
+| import | ✓ success | 0.09 | 3 | 3 | 返回码=0 |
+| clean | ✓ success | 0.12 | 1 | 2 | 返回码=0 |
+| label | ✓ success | 0.07 | 2 | 2 | 返回码=0 |
+| profile | ✓ success | 1.56 | 1 | 9 | 返回码=0 |
+| split | ✓ success | 0.10 | 1 | 7 | 返回码=0, 方式=ratio |
+| mask | ✓ success | 0.11 | 3 | 4 | 处理 3 个拆分文件 |
+| report | ✓ success | 0.51 | 4 | 6 | 返回码=0 |
+| export | ✓ success | 3.84 | 4 | 9 | 返回码=0, 格式=['csv', 'xlsx'] |
 
 ## import
 
@@ -155,9 +155,12 @@
 
 | 名称 | 路径 | 行数 |
 |------|------|------|
+| batch_manifest.csv | `output_qg\01_normal_pass\reports\batch_manifest.csv` | 8 |
+| batch_manifest.md | `output_qg\01_normal_pass\reports\batch_manifest.md` | - |
 | fraud_report.txt | `output_qg\01_normal_pass\reports\fraud_report.txt` | - |
 | fraud_report.xlsx | `output_qg\01_normal_pass\reports\fraud_report.xlsx` | 7 |
 | fraud_report_business.md | `output_qg\01_normal_pass\reports\fraud_report_business.md` | - |
+| quality_gates_report.csv | `output_qg\01_normal_pass\reports\quality_gates_report.csv` | 6 |
 
 > 返回码=0
 
@@ -196,7 +199,7 @@
 - **跳过步骤**: 0
 - **失败步骤**: 0
 - **总步骤**: 8
-- **总耗时(秒)**: 6.32
+- **总耗时(秒)**: 6.4
 - **QG通过**: 5
 - **QG警告**: 1
 - **QG阻断**: 0
@@ -209,7 +212,7 @@
 | G1b_高比例空值列 | 🟠 WARN | major | 高比例空值列(>30%)共 4 列: txn_normal.csv.installment(71.09%) ; txn_normal.csv.cashback(69.47%) ; txn_normal.csv.rule_hit(96.57%) ; txn_normal.csv.manual_result(96.96%) |
 | G2_主集(labeled)样本为空 | ✅ PASS | none | 主集样本数 = 3000 |
 | G2b_训练集(train)为空 | ✅ PASS | none | train 样本数 = 2098 |
-| G3_欺诈率环比异常波动 | ✅ PASS | none | 当前=1.6000%, 上次=1.6000%, 环比=0.0% |
+| G3_欺诈率环比异常波动 | ✅ PASS | none | 当前=1.6000%, 上次=1.3000%, 环比=23.1% |
 | G4_欺诈率范围合理性 | ✅ PASS | none | 欺诈率=1.6000%，在合理区间 [0.05%, 15.00%] |
 
 > 完整清单: quality_gates_report.csv

@@ -34,12 +34,13 @@ chargebacks_orig = pd.read_csv("test_data/chargebacks.csv")
 high_cb_ids = high_fraud["txn_id"].sample(n=750, random_state=42).tolist()
 high_chargebacks = pd.DataFrame({
     "txn_id": high_cb_ids,
-    "cb_time": pd.date_range("2024-07-15", periods=len(high_cb_ids), freq="min").astype(str),
-    "cb_reason": "CNP欺诈",
-    "cb_amount": 100.0,
+    "chargeback_time": pd.date_range("2024-07-15", periods=len(high_cb_ids), freq="min").astype(str),
+    "chargeback_reason": "CNP欺诈",
+    "chargeback_amount": 100.0,
+    "chargeback_result": "商户败诉",
 })
 high_chargebacks.to_csv(OUT / "chargebacks_high.csv", index=False, encoding="utf-8-sig")
-print(f"[B] 高欺诈chargebacks -> {len(high_chargebacks)} 条")
+print(f"[B] 高欺诈chargebacks -> {len(high_chargebacks)} 条，列名对齐 test_data/chargebacks.csv")
 
 # ---- D. 空训练集（只有 5 条交易，日期都在 train_end 之后）----
 small_dates = pd.date_range("2024-12-29", periods=5, freq="h")

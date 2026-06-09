@@ -1,0 +1,31 @@
+# 场景 4b: 高欺诈率（chargebacks 列名修正版，750/3000=25% 拒付）
+# 用法：先跑 qg1_normal.yaml 生成上一批历史，再跑本配置，预期 G3 WARN、G4 WARN
+batch_task:
+  task_name: "QG_scenario4b_high_fraud25pct_WARN"
+  data_paths:
+    transactions:
+      - test_data/qg_testdata/txn_normal.csv
+    chargebacks:
+      - test_data/qg_testdata/chargebacks_high.csv
+    blacklists:
+      - test_data/qg_testdata/blacklists.csv
+  output:
+    base_dir: ./output_qg/04b_high_fraud_WARN
+  import:
+    field_mapping: {}
+    null_threshold_pct: 30.0
+  split:
+    method: ratio
+    ratios: [0.7, 0.2, 0.1]
+    stratified: true
+  mask:
+    fields: [cardholder_name, id_card, phone]
+  export:
+    formats: [csv, xlsx]
+    include: ["train*"]
+    prefix: ""
+  quality_gates:
+    block_on_empty_train: false
+    block_on_missing_required: false
+    fraud_rate_warn_range: [0.0005, 0.15]      # 经验上限 15%，25% 会 WARN
+    max_fraud_rate_volatility_pct: 50.0        # 正常批 1.6% -> 25% 环比 = 1462%，超 50% 会 WARN

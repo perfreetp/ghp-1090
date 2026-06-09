@@ -188,6 +188,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     # 字段映射配置（给 import 用）
     import_cfg = task_cfg.get("import", {})
     field_mapping_extra = import_cfg.get("field_mapping", {})
+    null_threshold_pct = float(import_cfg.get("null_threshold_pct", 30.0))  # import 和 QG 共用阈值
 
     # 跳过步骤
     skip_steps = set(task_cfg.get("skip_steps", []) or [])
@@ -223,6 +224,7 @@ def cmd_run(args: argparse.Namespace) -> int:
                 output_dir=dirs["imported"],
                 force=True,
                 field_mapping=field_mapping_extra,
+                null_threshold=null_threshold_pct,  # 与 QG 共用阈值
             )
             rc = importer.cmd_import(ns)
             step.status = "success" if rc == 0 else "failed"
@@ -547,7 +549,10 @@ def _run_quality_gates(manifest: BatchManifest, dirs: Dict[str, str],
         results.append({"规则": rule, "结果": status, "严重级别": severity, "详情": detail})
 
     qg_cfg = (task_cfg or {}).get("quality_gates", {}) or {}
-    high_null_threshold = float((task_cfg.get("import") or {}).get("high_null_threshold", 0.3) or 0.3)
+    import_cfg_inner = task_cfg.get("import") or {}
+    import_null_threshold_pct = float(import_cfg_inner.get("null_threshold_pct", 30.0))  # 百分比，默认30%
+    high_null_threshold_pct = float(qg_cfg.get("high_null_threshold_pct", import_null_threshold_pct))
+    high_null_threshold = high_null_threshold_pct / 100.0  # 转比例（QG 和 import 口径统一）
     warn_fraud_range = qg_cfg.get("fraud_rate_warn_range", [0.0005, 0.15])  # 0.05%~15%
     block_train_empty = bool(qg_cfg.get("block_on_empty_train", True))
     block_missing_required = bool(qg_cfg.get("block_on_missing_required", False))
@@ -629,11 +634,15 @@ def _run_quality_gates(manifest: BatchManifest, dirs: Dict[str, str],
     if labeled_count > 0 and df_labeled is not None and "fraud_label" in df_labeled.columns:
         try:
             cur_fr = float((df_labeled["fraud_label"] == 1).sum() / max(len(df_labeled), 1) * 100)
-            # 找历史
+            # 找历史（最近的一条且不是当前批次自己）
             try:
-                hist = _read_history(limit=5)
+                hist = _read_history(limit=10)
+                cur_start = manifest.start_time
                 prev_fr: Optional[float] = None
-                for h in hist[1:]:
+                for h in hist:
+                    # 排除和当前批次同 start_time 的（防止自己和自己比；通常当前批次还未入台账，hist 里不存在）
+                    if h.get("start_time") == cur_start:
+                        continue
                     km = h.get("key_metrics") or {}
                     fr = km.get("fraud_rate_pct")
                     if fr is not None and km.get("txn_total", 0) > 0:
@@ -828,8 +837,8 @@ def register_subparser(subparsers) -> None:
     plist = psub.add_parser("list", help="列出历史跑批记录 (默认)")
     plist.add_argument("-n", "--limit", type=int, default=20,
                        help="显示最近 N 条 (默认 20)")
-    plist.add_argument("-s", "--status", choices=["all", "success", "failed", "partial"],
-                       default="all", help="按状态过滤")
+    plist.add_argument("-s", "--status", choices=["all", "success", "failed", "partial", "blocked"],
+                       default="all", help="按状态过滤 (all/success/failed/partial/blocked)")
     plist.add_argument("--task-name", help="按任务名模糊匹配")
     plist.add_argument("--json", action="store_true", help="JSON 格式输出")
     plist.set_defaults(func=cmd_history_list)

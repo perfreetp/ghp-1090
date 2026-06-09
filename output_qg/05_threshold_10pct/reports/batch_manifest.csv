@@ -1,0 +1,9 @@
+﻿步骤,状态,耗时(秒),输入文件数,输出文件数,说明
+import,success,0.08,3,3,返回码=0
+clean,success,0.12,1,2,返回码=0
+label,success,0.07,2,2,返回码=0
+profile,success,1.55,1,9,返回码=0
+split,success,0.1,1,7,"返回码=0, 方式=ratio"
+mask,success,0.1,3,4,处理 3 个拆分文件
+report,success,0.51,4,3,返回码=0
+export,success,3.81,4,9,"返回码=0, 格式=['csv', 'xlsx']"

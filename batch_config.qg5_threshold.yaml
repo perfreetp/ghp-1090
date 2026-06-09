@@ -1,0 +1,30 @@
+# 场景 5: 高空值阈值 10% — 验证 import_field_check_report / quality_gates_report / batch_manifest.md 三处高空值列数目完全一致
+# 预期: 三处都列出相同数目的高比例空值列（阈值 10%，原 30% 的 4 列 + 更多列会被纳入）
+batch_task:
+  task_name: "QG_scenario5_threshold_10pct_consistency"
+  data_paths:
+    transactions:
+      - test_data/qg_testdata/txn_normal.csv
+    chargebacks:
+      - test_data/qg_testdata/chargebacks.csv
+    blacklists:
+      - test_data/qg_testdata/blacklists.csv
+  output:
+    base_dir: ./output_qg/05_threshold_10pct
+  import:
+    field_mapping: {}
+    null_threshold_pct: 10.0             # ★ 调低到 10%，比默认 30% 严很多
+  split:
+    method: ratio
+    ratios: [0.7, 0.2, 0.1]
+  mask:
+    fields: [cardholder_name, id_card, phone]
+  export:
+    formats: [csv, xlsx]
+    include: ["train*"]
+  quality_gates:
+    # quality_gates 下不单独设 high_null_threshold_pct → 自动复用 import.null_threshold_pct
+    block_on_empty_train: false
+    block_on_missing_required: false
+    fraud_rate_warn_range: [0.0005, 0.15]
+    max_fraud_rate_volatility_pct: 50.0
