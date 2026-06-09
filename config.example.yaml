@@ -1,0 +1,106 @@
+# 信用卡欺诈样本整理器 配置示例
+# 使用: fraud-org <command> --config config.yaml
+
+# ==================== import ====================
+import:
+  # 字段名映射 (文件列名 -> 标准列名)
+  field_mapping:
+    "流水号": "txn_id"
+    "交易日期": "txn_time"
+    "交易币种": "currency"
+  # 允许缺失的必填字段
+  allow_missing:
+    - "mcc"
+
+# ==================== label ====================
+label:
+  # 高风险规则ID
+  high_risk_rules:
+    - "R_FRAUD_001"
+    - "R_VELOCITY_003"
+    - "R_GEO_002"
+  # 拒付结果映射
+  chargeback_map:
+    "胜诉": 0
+    "败诉": 1
+  # 人工结论映射
+  manual_map:
+    "确认为欺诈": 1
+    "本人操作": 0
+
+# ==================== mask ====================
+mask:
+  # 脱敏规则: mask/hash/drop
+  rules:
+    card_no: mask
+    cardholder_name: mask
+    id_card: mask
+    phone: mask
+    email: mask
+    device_id: hash
+    ip: hash
+  # 哈希盐值
+  salt: "my_bank_salt_2024"
+
+# ==================== export ====================
+export:
+  # 包含列 (留空=全部)
+  include_columns:
+    - "txn_id"
+    - "card_no"
+    - "txn_time"
+    - "txn_amount"
+    - "currency"
+    - "merchant_id"
+    - "merchant_name"
+    - "txn_type"
+    - "channel"
+    - "province"
+    - "city"
+    - "mcc"
+    - "fraud_label"
+    - "label_source"
+    - "risk_score"
+  # 排除列 (优先级低于 include)
+  exclude_columns:
+    - "manual_result"
+    - "rule_hit"
+  # 列重命名 (旧列名: 新列名)
+  rename_columns:
+    "txn_id": "trans_id"
+    "txn_amount": "amount"
+    "txn_time": "trans_time"
+  # 值映射
+  value_mappings:
+    "txn_type":
+      "消费": "PURCHASE"
+      "取现": "WITHDRAW"
+      "转账": "TRANSFER"
+    "fraud_label":
+      0: "GENUINE"
+      1: "FRAUD"
+      2: "SUSPICIOUS"
+      -1: "UNKNOWN"
+
+# ==================== split ====================
+split:
+  # 默认拆分比例
+  default_ratios: [0.70, 0.15, 0.15]  # train/valid/backtest
+  # 日期拆分分界点
+  train_end: "2024-09-30"
+  valid_end: "2024-11-15"
+
+# ==================== profile ====================
+profile:
+  # 分析维度
+  entities:
+    - "card_no"
+    - "merchant_id"
+    - "device_id"
+    - "province"
+    - "mcc"
+  # 异常阈值
+  thresholds:
+    freq_threshold: 20
+    fraud_threshold: 0.05
+    interval_threshold_hours: 0.5
